@@ -172,7 +172,7 @@ async function renderSetting() {
 
 it('keeps missing nmem on the page with an install link and does not open a dialog', async () => {
   await renderSetting();
-  expect(container.textContent).toContain('Nowledge Mem CLI is not installed');
+  expect(container.textContent).toContain('Memory per role');
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   const install = [...container.querySelectorAll('button')].find((candidate) =>
     candidate.textContent?.includes('Get Nowledge Mem')
@@ -235,7 +235,7 @@ it('keeps Add available for provider selection but disables creation when nmem i
   await click('Add memory');
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Memory providers');
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-    'Nowledge Mem CLI is not installed'
+    'Nowledge Mem is not installed on this machine.'
   );
   expect(button('Create and import').disabled).toBe(true);
   expect(mocks.entries).toEqual([]);

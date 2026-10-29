@@ -21,6 +21,9 @@ import {
   getAgentRoleTarget,
   type AgentRole,
   MemoryCreateInputSchema,
+  isAgentConnectProvider,
+  providerInstalls,
+  providerSignsIn,
   isMemoryIdentityMissing,
   machineSupportsMemoryProviders,
   type MachineId,
@@ -30,6 +33,7 @@ import {
   type MemoryIdentity,
   type MemoryProviderResponse,
 } from '@lody/shared';
+import evermeLogo from '@/assets/everme.png';
 import nowledgeLogo from '@/assets/nowledge-mem.png';
 import { localMachineIdAtom } from '@/atoms/local-probe';
 import { useVisibleMachineMetas } from '@/hooks/use-visible-machine-metas';
@@ -41,6 +45,11 @@ import { useMemoryAssociations } from '@/hooks/use-memory-associations';
 import { useAppCapability } from '@/lib/app-platform';
 import { openExternalUrl } from '@/lib/native-browser';
 import { MachinePills } from './machine-pills';
+import { MemoryAgentConnectList } from './memory-agent-connect';
+import { getAgentConfigsByMachineAtomFamily } from '@/atoms/agents';
+import { useMachineFlockAgentConfigsForMachineIds } from '@/hooks/use-machine-flock-agent-configs';
+import { MemoryInstallCard } from './memory-install';
+import { MemorySignInCard } from './memory-sign-in';
 import { Field, FormMessage } from './form-primitives';
 import { settingsCatalog as catalog, settingsSurface as surface } from './surface';
 import { SettingsEmptyList, settingsRecordsCard } from './compact-layout';
@@ -113,6 +122,7 @@ const styles = stylex.create({
     objectFit: 'contain',
     filter: 'grayscale(1)',
   },
+  logoBrandColor: { filter: 'none' },
   description: {
     display: '-webkit-box',
     WebkitBoxOrient: 'vertical',
@@ -124,6 +134,17 @@ const styles = stylex.create({
     whiteSpace: 'pre-wrap',
   },
   note: { padding: space[4] },
+  // Full width, the way it read before: the one thing to do about a missing
+  // provider, not a link tucked beside the sentence explaining it. A column
+  // flex so the button stretches; the padding keeps it its own step.
+  installAction: { display: 'flex', flexDirection: 'column', paddingBlock: space[1] },
+  emptyHint: {
+    color: colors.tertiaryLabel,
+    textAlign: 'center',
+    fontSize: text.footnoteSize,
+    paddingBlock: space[4],
+    margin: 0,
+  },
   layout: {
     display: 'flex',
     height: '100%',
@@ -180,9 +201,31 @@ const styles = stylex.create({
   fullField: { gridColumn: '1 / -1' },
 });
 
-export function MemoryProviderLogo({ providerId }: { providerId: string }) {
-  return providerId === 'nowledge-mem' ? (
-    <img src={nowledgeLogo} alt="Nowledge Mem" {...stylex.props(styles.logo)} />
+const PROVIDER_LOGOS: Record<string, { src: string; alt: string }> = {
+  'nowledge-mem': { src: nowledgeLogo, alt: 'Nowledge Mem' },
+  everme: { src: evermeLogo, alt: 'EverMe' },
+};
+export function MemoryProviderLogo({
+  providerId,
+  brandColor,
+  decorative,
+}: {
+  providerId: string;
+  /** Section headings keep the mark in colour; list rows stay desaturated. */
+  brandColor?: boolean;
+  /**
+   * The provider's name is already beside it. Naming the mark too makes a
+   * screen reader say it twice.
+   */
+  decorative?: boolean;
+}) {
+  const logo = PROVIDER_LOGOS[providerId];
+  return logo ? (
+    <img
+      src={logo.src}
+      alt={decorative ? '' : logo.alt}
+      {...stylex.props(styles.logo, brandColor && styles.logoBrandColor)}
+    />
   ) : null;
 }
 
@@ -497,7 +540,12 @@ function MachineMemories({ machineId, supported }: { machineId: MachineId; suppo
           type="button"
           size="small"
           variant="secondary"
-          onClick={() => setEditor({ providerId: MEMORY_PROVIDERS[0].id })}
+          onClick={() =>
+            setEditor({
+              providerId: (MEMORY_PROVIDERS.find((item) => !isAgentConnectProvider(item.id)) ??
+                MEMORY_PROVIDERS[0])!.id,
+            })
+          }
         >
           <Plus size={14} />
           {t('settings.memory.add')}
@@ -558,11 +606,49 @@ function ProviderRecords({
   save: (entry: MemoryAssociation, edit: boolean) => Promise<void>;
   remove: (entry: MemoryAssociation) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const online = useMachineOnlineStatus(machineId) === 'online';
   const state = useMemoryProvider(machineId, provider.id, online && supported, refreshToken);
+  // The panel lists this machine's own agents, so it reads Lody's configs
+  // rather than the provider's catalogue. The subscription has to be mounted
+  // for the rows to arrive; without it the atom stays empty.
+  const machineIds = useMemo(() => [machineId], [machineId]);
+  useMachineFlockAgentConfigsForMachineIds(machineIds);
+  const agentConfigs = useAtomValue(getAgentConfigsByMachineAtomFamily(machineId));
+  // A fetch the user asked for carries on into signing in: the button said it
+  // would set the provider up, and stopping half-way would be a promise kept
+  // only in part.
+  const [justInstalled, setJustInstalled] = useState(false);
+  const ready = online && supported && state.result?.status === 'ready';
+  const missing = state.result?.status === 'not_installed';
+  // One failed reply is not evidence the provider broke: the runner times out,
+  // a machine drops mid-refresh. Once it has answered properly, keep showing
+  // what it said rather than tearing the list down and offering a reinstall.
+  const everAnswered = useRef(false);
+  if (ready) everAnswered.current = true;
+  // Installed and reachable, with nobody signed in — the one unready state a
+  // provider can settle itself, so it offers a sign-in, not a line of advice.
+  const signedOut =
+    online && supported && state.result?.status === 'not_running' && providerSignsIn(provider.id);
+  // Something is installed but will not answer. For a provider Lody can fetch
+  // this is actionable rather than just bad news, so it gets the same card the
+  // missing case gets — pointed at repair instead of first install.
+  const unreadable =
+    online &&
+    supported &&
+    state.result?.status === 'error' &&
+    providerInstalls(provider.id) &&
+    !everAnswered.current;
   return (
     <div {...stylex.props(styles.stack)}>
-      {!online || !supported || (state.result && state.result.status !== 'ready') ? (
+      {/* Each card below answers one unready state itself, naming the provider
+          and saying what it is for, so a sentence here would only repeat it.
+          Whatever none of them claims — installed but will not start, an error
+          after a list was already working — still has to be said out loud, or
+          the page simply goes quiet about it. */}
+      {!online ||
+      !supported ||
+      (state.result && !ready && !missing && !signedOut && !unreadable) ? (
         <MemoryProviderStatus
           provider={provider}
           online={online}
@@ -571,15 +657,50 @@ function ProviderRecords({
           result={state.result}
         />
       ) : null}
-      <MemoryAssociationList
-        entries={entries}
-        inventory={state.result}
-        getAssignedRoles={getAssignedRoles}
-        onAssociateRole={onAssociateRole}
-        onEdit={(entry) => setEditor({ providerId: provider.id, entry })}
-        onRemove={(entry) => void remove(entry)}
-      />
-      {editor ? (
+      {missing || unreadable ? (
+        // Every provider that cannot be used yet gets the same card, so the
+        // page presents them as two choices rather than one product and one
+        // loose sentence. Only the action differs.
+        <MemoryInstallCard
+          logo={<MemoryProviderLogo providerId={provider.id} brandColor decorative />}
+          name={provider.name}
+          providerKey={provider.id}
+          installUrl={provider.installUrl}
+          reason={providerInstalls(provider.id) ? (missing ? 'missing' : 'unreadable') : undefined}
+          onInstalled={() => setJustInstalled(true)}
+          state={state}
+        />
+      ) : signedOut ? (
+        <MemorySignInCard
+          logo={<MemoryProviderLogo providerId={provider.id} brandColor decorative />}
+          name={provider.name}
+          providerKey={provider.id}
+          autoStart={justInstalled}
+          state={state}
+        />
+      ) : isAgentConnectProvider(provider.id) ? (
+        <MemoryAgentConnectList
+          logo={<MemoryProviderLogo providerId={provider.id} brandColor decorative />}
+          name={provider.name}
+          providerKey={provider.id}
+          configs={agentConfigs}
+          agents={state.result?.agents ?? []}
+          state={state}
+          disabled={!ready}
+        />
+      ) : entries.length ? (
+        <MemoryAssociationList
+          entries={entries}
+          inventory={state.result}
+          getAssignedRoles={getAssignedRoles}
+          onAssociateRole={onAssociateRole}
+          onEdit={(entry) => setEditor({ providerId: provider.id, entry })}
+          onRemove={(entry) => void remove(entry)}
+        />
+      ) : ready ? (
+        <p {...stylex.props(styles.emptyHint)}>{t('settings.memory.emptyLinked')}</p>
+      ) : null}
+      {editor && !isAgentConnectProvider(provider.id) ? (
         <MemoryEditor
           key={editor.entry?.memoryId ?? 'new'}
           machineId={machineId}
@@ -620,17 +741,27 @@ export function MemoryProviderStatus({
   return (
     <div {...stylex.props(styles.stack)}>
       <span {...stylex.props(catalog.meta)}>
-        {t(`settings.memory.status.${result?.status ?? 'error'}`)}
+        {/* Each provider names its own CLI, so fall back only when it has no copy. */}
+        {t(
+          [
+            `settings.memory.status.${provider.id}.${result?.status ?? 'error'}`,
+            `settings.memory.status.${result?.status ?? 'error'}`,
+          ],
+          { provider: provider.name }
+        )}
       </span>
       {result?.status === 'not_installed' && provider.installUrl ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="small"
-          onClick={() => void openExternalUrl(provider.installUrl!)}
-        >
-          {t('settings.memory.install')}
-        </Button>
+        // The one thing to do when a provider is missing, so it looks like a
+        // control rather than the hover state a ghost button reads as.
+        <span {...stylex.props(styles.installAction)}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void openExternalUrl(provider.installUrl!)}
+          >
+            {t([`settings.memory.install.${provider.id}`, 'settings.memory.install'])}
+          </Button>
+        </span>
       ) : null}
     </div>
   );
@@ -772,7 +903,11 @@ export function MemoryEditor({
               {t('settings.memory.providers')}
             </span>
             <div role="listbox" aria-label={t('settings.memory.providers')}>
-              {MEMORY_PROVIDERS.map((item) => (
+              {/* Agent-connect providers hold one memory per account, so this
+                  editor has nothing to create for them. Offering them here
+                  selected a provider the editor then refuses to render,
+                  leaving an empty dialog. */}
+              {MEMORY_PROVIDERS.filter((item) => !isAgentConnectProvider(item.id)).map((item) => (
                 <button
                   key={item.id}
                   type="button"
@@ -964,17 +1099,19 @@ export function RoleMemoryPicker({
       {!entries.length ? (
         <p {...stylex.props(catalog.meta)}>{t('settings.memory.emptyRole')}</p>
       ) : (
-        MEMORY_PROVIDERS.map((provider) => (
-          <RoleProviderMemories
-            key={provider.id}
-            machineId={machineId}
-            provider={provider}
-            entries={entries.filter((entry) => entry.providerId === provider.id)}
-            supported={supported}
-            value={value}
-            onChange={onChange}
-          />
-        ))
+        MEMORY_PROVIDERS.filter((provider) => !isAgentConnectProvider(provider.id)).map(
+          (provider) => (
+            <RoleProviderMemories
+              key={provider.id}
+              machineId={machineId}
+              provider={provider}
+              entries={entries.filter((entry) => entry.providerId === provider.id)}
+              supported={supported}
+              value={value}
+              onChange={onChange}
+            />
+          )
+        )
       )}
     </div>
   );

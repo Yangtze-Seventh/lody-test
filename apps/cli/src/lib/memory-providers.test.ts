@@ -144,4 +144,20 @@ describe('Nowledge memory provider', () => {
       'Unsupported memory provider'
     );
   });
+  it('refuses to connect agents through a provider that only manages identities', async () => {
+    const provider = createNowledgeMemoryProvider(async () => ({ stdout: '{"status":"ok"}' }));
+    expect(
+      await handleMemoryProviderRequest(
+        { action: 'connect', providerId: provider.id, targets: ['claude'] },
+        [provider]
+      )
+    ).toMatchObject({ status: 'error' });
+  });
+
+  it('refuses to sign in through a provider that holds no account', async () => {
+    const provider = createNowledgeMemoryProvider(async () => ({ stdout: '{"status":"ok"}' }));
+    expect(
+      await handleMemoryProviderRequest({ action: 'signIn', providerId: provider.id }, [provider])
+    ).toMatchObject({ status: 'error' });
+  });
 });
