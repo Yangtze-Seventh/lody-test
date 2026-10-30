@@ -126,9 +126,18 @@ pnpm start:local
 | 3 | 在浏览器里登录 | 邮箱或 GitHub 都行，没账号就当场注册。**批准之后 Lody 是不是自己换成了 Agent 列表？**全程有没有让你复制粘贴 key？（不应该有） |
 | 4 | 看 Agent 列表 | 列出来的是不是**你自己电脑上的 Agent**？有没有你根本没装过的东西？每行的 `Hook` / `MCP` 你看得懂吗？ |
 | 5 | 连一个，再点「全部连接」 | 状态有变吗？变得够快吗？ |
-| 6 | 任何一步失败 | **把报错原话截图发回来。**重点是：那句话你看得懂吗？知道下一步该干什么吗？ |
+| 6 | 看一眼上面的 Nowledge Mem | 它和 EverMe 是不是一样的排布——logo、产品名、一行说明，右边一个自己的按钮？ |
+| 7 | 任何一步失败 | **把报错原话截图发回来。**重点是：那句话你看得懂吗？知道下一步该干什么吗？ |
 
 > **第 2、3 步最关键** —— 这是整条链路里唯一还没有人真正走通过的一段。
+
+> ### 如果你的工作区里有不止一台机器
+>
+> 页面顶上会出现机器切换。切到**别的机器**时，EverMe 那一块只剩产品介绍和一句
+> 「只能在那台机器上由本人登录和连接」，没有任何按钮，也不会显示它连着谁的账号。
+>
+> **这是故意的**：一个账号一份记忆，从别处点登录会把那台机器绑到点击者的账号上。
+> Nowledge Mem 不受这条限制，它按机器划分，切过去照常可用。
 
 ---
 
@@ -141,15 +150,27 @@ pnpm start:local
 | 窗口没出来 / 闪一下就没了 | 已有 Lody 实例在跑 | macOS / Linux：`pkill -f Lody`，然后重试 |
 | 子模块目录是空的 | clone 时漏了 `--recurse-submodules` | `git submodule update --init --recursive` |
 | 依赖装坏了想重来 | — | `rm -rf node_modules && pnpm install` |
+| 拉了新代码，界面变了但行为没变 | 界面会热更新，**后台的守护进程不会** | 完全退出后重新 `pnpm start:local`（它会重新构建守护进程） |
 
 ### 关于测试失败
 
-如果你顺手跑了 `pnpm test`，会看到 **10 个失败**，全部集中在：
+如果你顺手跑了 `pnpm test`，会看到一些失败。**它们都是 Lody 官方 main 分支自带的，与本次改动无关**：
 
-- `packages/components/tests/runtime-provider.test.tsx`（9 个）
-- `packages/components/tests/boot-shell.test.tsx`（1 个）
+| 文件 | 个数 | 内容 |
+| --- | --- | --- |
+| `packages/components/tests/runtime-provider.test.tsx` | 9 | 浏览器 storage 事件 |
+| `packages/components/tests/boot-shell.test.tsx` | 1 | storage 不可用时的回退 |
+| `apps/cli/src/lib/github-git-transport.test.ts` | 1 | SSH 子模块克隆 |
+| `apps/cli/src/lib/local-project-meta.test.ts` | 1 | 项目扫描（偶发，和负载有关）|
 
-**这些是 Lody 官方 main 分支自带的，与本次改动无关**，已在零改动的官方代码上实测复现。这两个文件里 `memory` 一词出现 0 次。不用管它们。
+这四个文件里 `memory` 一词出现 0 次。每一条都在**零改动的官方代码**上实测复现过。不用管它们。
+
+只跑这次改动相关的部分，应该全绿：
+
+```bash
+pnpm --dir packages/components exec vitest run tests/memory-setting.test.tsx tests/memory-agent-rows.test.ts
+pnpm --dir apps/cli exec vitest run src/lib/memory-providers.test.ts src/lib/everme-provider.test.ts
+```
 
 ---
 
@@ -177,3 +198,5 @@ npm uninstall -g @everme/cli
 | 没登录 | 手动去终端拿 API Key 粘贴进来 | 系统浏览器完成 OAuth，一次点击；device code 全程留在守护进程，不经过界面 |
 | 选 Agent | 展示 EverMe 的产品目录 | 展示**这台机器上 Lody 自己的 Agent 配置**；EverMe 没适配的排在最后且不给按钮 |
 | 两个 Provider | 一个有标题、一个只有一句话 | 同样的 logo 尺寸、标题层级、一行描述、整行按钮——选择权交给那两句描述 |
+| 记忆体列表 | 每行高度随备注长短变化，控件位置也跟着浮动 | 行等高、备注截一行、角色最多两个、行尾固定槽位，整列对齐 |
+| 在别人的机器上 | 可以替对方安装、登录、连接 | EverMe 只在本机可用，别的机器连请求都不发 |
