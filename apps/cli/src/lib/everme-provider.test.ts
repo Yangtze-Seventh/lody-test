@@ -486,16 +486,16 @@ describe('EverMe memory provider', () => {
     await signIn('signIn');
     expect((await signIn('signInPoll')).signIn).toEqual({ status: 'pending' });
     expect((await signIn('signInPoll')).signIn).toEqual({ status: 'expired' });
-    // A spent code ends the flow, so the next poll never reaches the CLI.
-    const spoken = state.calls.length;
+    // A spent code ends the flow, so the next poll never redeems again.
+    const spent = state.calls.filter((call) => call[1] === 'login').length;
     expect((await signIn('signInPoll')).signIn).toEqual({ status: 'expired' });
-    expect(state.calls).toHaveLength(spoken);
+    expect(state.calls.filter((call) => call[1] === 'login')).toHaveLength(spent);
   });
 
   it('will not finish a flow it never started', async () => {
     const state: EverMeState = { platforms: {}, calls: [], account: null };
     expect((await signInOf(state)('signInPoll')).signIn).toEqual({ status: 'expired' });
-    expect(state.calls).toHaveLength(0);
+    expect(state.calls.filter((call) => call[1] === 'login')).toHaveLength(0);
   });
 
   it('refuses a sign-in page a browser should not be sent to', async () => {

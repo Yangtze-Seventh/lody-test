@@ -119,16 +119,28 @@ export function MemorySignInCard({
   useEffect(() => {
     if (phase !== 'waiting') return undefined;
     let cancelled = false;
+    // One ask at a time. A tick is allowed 4s but the call behind it is
+    // allowed twenty, so without this the same device code was redeemed
+    // twice — and the second attempt found it spent and called the flow
+    // expired on a machine that had just signed in.
+    let asking = false;
     const timer = window.setInterval(() => {
       if (Date.now() > expiresAt.current) {
         setPhase('expired');
         return;
       }
-      void poll.current().then((result) => {
-        // `approved` needs nothing here: the reply that carries it carries the
-        // signed-in inventory too, and the panel swaps this card for the list.
-        if (!cancelled && result?.signIn?.status === 'expired') setPhase('expired');
-      });
+      if (asking) return;
+      asking = true;
+      void poll
+        .current()
+        .finally(() => {
+          asking = false;
+        })
+        .then((result) => {
+          // `approved` needs nothing here: the reply that carries it carries the
+          // signed-in inventory too, and the panel swaps this card for the list.
+          if (!cancelled && result?.signIn?.status === 'expired') setPhase('expired');
+        });
     }, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as stylex from '@stylexjs/stylex';
 import { Download, ExternalLink, RefreshCw } from 'lucide-react';
+import type { MemoryProviderResponse } from '@lody/shared';
 import { Button } from '@lody/ui/button';
 import { Spinner } from '@lody/ui/spinner';
 import { space } from '@lody/ui/tokens/scales.stylex';
@@ -28,6 +29,16 @@ const styles = stylex.create({
 });
 
 type Phase = 'idle' | 'running' | 'stranded' | 'failed';
+
+/**
+ * Whether an install that reported `done` actually put the provider where this
+ * machine can reach it. A fresh machine answers `not_running` — installed, and
+ * nobody signed in yet — which is success and the cue for the sign-in card.
+ * Reading only `ready` as success called the ordinary outcome a failure and
+ * stopped the install from carrying on into the sign-in it promised.
+ */
+const landed = (status: MemoryProviderResponse['status']): boolean =>
+  status === 'ready' || status === 'not_running';
 
 /**
  * The screen for a provider this machine cannot use yet. Every provider on the
@@ -73,24 +84,34 @@ export function MemoryInstallCard({
   useEffect(() => {
     if (phase !== 'running') return undefined;
     let cancelled = false;
+    // One ask at a time: each poll probes EverCLI, which is allowed longer
+    // than the gap between ticks, so they would otherwise pile up.
+    let asking = false;
     const timer = window.setInterval(() => {
       if (Date.now() > endsAt.current) {
         setPhase('failed');
         return;
       }
-      void poll.current().then((result) => {
-        if (cancelled || !result?.install) return;
-        if (result.install.status === 'failed') setPhase('failed');
-        // Landed, and the provider answers: done. Landed and it still will not
-        // answer — a PATH this process was handed long ago, a CLI that is
-        // installed but broken — is not success, and dropping back to `idle`
-        // left the card exactly as it was with nothing said either way.
-        else if (result.install.status === 'done') {
-          const settled = result.status === 'ready';
-          setPhase(settled ? 'idle' : 'stranded');
-          if (settled) installed.current?.();
-        }
-      });
+      if (asking) return;
+      asking = true;
+      void poll
+        .current()
+        .finally(() => {
+          asking = false;
+        })
+        .then((result) => {
+          if (cancelled || !result?.install) return;
+          if (result.install.status === 'failed') setPhase('failed');
+          // Landed and reachable: done. `not_running` counts — a machine that
+          // never had EverCLI has nobody signed in on it, which is the whole
+          // reason the next card exists. Only a provider that still cannot be
+          // seen at all is stranded.
+          else if (result.install.status === 'done') {
+            const settled = landed(result.status);
+            setPhase(settled ? 'idle' : 'stranded');
+            if (settled) installed.current?.();
+          }
+        });
     }, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
@@ -108,8 +129,8 @@ export function MemoryInstallCard({
     // this guard exists to prevent.
     if (!result?.install || result.install.status === 'failed') setPhase('failed');
     else if (result.install.status === 'done') {
-      // Same reading as the poll: landing is not the same as answering.
-      const settled = result.status === 'ready';
+      // Same reading as the poll.
+      const settled = landed(result.status);
       setPhase(settled ? 'idle' : 'stranded');
       if (settled) installed.current?.();
     }

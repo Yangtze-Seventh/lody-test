@@ -197,7 +197,10 @@ export async function handleMemoryProviderRequest(
       const signIn = await begin.call(provider);
       // Approval is the moment the account exists, so answer with the
       // inventory it unlocked rather than making the UI ask a second time.
-      const settled = signIn.status === 'approved' ? await provider.probe() : 'not_running';
+      // Every reply probes: claiming `not_running` without looking would
+      // overwrite a machine that just became ready through another window,
+      // and would still say "installed, signed out" after an uninstall.
+      const settled = await provider.probe();
       const agents = settled === 'ready' && provider.agents ? await provider.agents() : undefined;
       return {
         type: 'machine/memory',

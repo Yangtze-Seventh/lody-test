@@ -640,10 +640,14 @@ function ProviderRecords({
   const ready = online && supported && state.result?.status === 'ready';
   const missing = state.result?.status === 'not_installed';
   // One failed reply is not evidence the provider broke: the runner times out,
-  // a machine drops mid-refresh. Once it has answered properly, keep showing
-  // what it said rather than tearing the list down and offering a reinstall.
+  // a machine drops mid-refresh. Once it has answered at all — ready, or
+  // installed with nobody signed in — keep showing what it said rather than
+  // tearing the card down and offering a reinstall. Doing that mid sign-in
+  // also abandons a device flow the daemon still holds, wasting an approval
+  // the user may be making in their browser right then.
   const everAnswered = useRef(false);
-  if (ready) everAnswered.current = true;
+  if (ready || state.result?.status === 'not_running') everAnswered.current = true;
+
   // Installed and reachable, with nobody signed in — the one unready state a
   // provider can settle itself, so it offers a sign-in, not a line of advice.
   const signedOut =

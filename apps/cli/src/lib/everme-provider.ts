@@ -68,8 +68,17 @@ const EVERME_AGENTS: readonly {
 /**
  * The transport caps a memory request at 60s, so a batch that would outlast it
  * stops early and reports the rest as untouched rather than failing wholesale.
+ *
+ * The budget is spent from the moment the request arrives and has to cover the
+ * two inventories that bracket the loop as well as the command in flight when
+ * the deadline passes — each of which may take the runner's full 20s. Starting
+ * the clock after the first inventory, and checking it only before starting a
+ * command, let a batch reach ~100s: the transport gave up, the panel greyed
+ * every row out, and the connects had in fact succeeded on disk.
  */
-const EVERME_BATCH_BUDGET_MS = 40_000;
+const EVERME_BATCH_BUDGET_MS = 60_000;
+/** What the runner may spend on one EverCLI call. */
+const EVERME_CALL_BUDGET_MS = 20_000;
 
 /**
  * How long to keep polling when EverCLI never says how long its code lives.
@@ -215,10 +224,13 @@ export function createEverMeMemoryProvider(
     targets: readonly string[],
     mode: 'install' | 'uninstall'
   ): Promise<MemoryAgent[]> => {
+    // Started before the first inventory, and holding back enough for the
+    // command that may already be running plus the inventory that closes the
+    // batch, so the whole reply still fits inside what the transport allows.
+    const deadline = Date.now() + EVERME_BATCH_BUDGET_MS - 2 * EVERME_CALL_BUDGET_MS;
     const rows = await inventory();
     const notes = new Map<string, MemoryAgentNotice>();
     const handled = new Set<string>();
-    const deadline = Date.now() + EVERME_BATCH_BUDGET_MS;
     for (const target of targets) {
       const entry = resolve(target);
       // Aliases share a platform; installing it twice would rotate its token.
@@ -267,7 +279,10 @@ export function createEverMeMemoryProvider(
       account = parsed.data?.email ?? parsed.data?.accountId;
       return parsed.ok && parsed.data ? 'ready' : 'not_running';
     } catch {
-      return result.code !== undefined ? 'not_running' : 'error';
+      // Only an envelope that parsed can say nobody is signed in. An exit code
+      // with output we could not read is a broken EverCLI, and calling that
+      // "signed out" offers a second sign-in to an account that has one.
+      return 'error';
     }
   };
 
@@ -349,14 +364,20 @@ export function createEverMeMemoryProvider(
       // A second click while one is running rejoins it. Two global installs
       // of the same package at once would race over the same bin directory.
       if (job?.running) return { status: 'running' };
+      // Claim the slot before awaiting anything. Two clicks that each read an
+      // empty slot before either filled it would both spawn a global install
+      // over the same bin directory — the thing this guard exists to prevent.
+      const started = { running: true, failed: false };
+      job = started;
       // An EverCLI that answers is left alone: a machine that has one has
       // connected agents behind it, and this click never asked to disturb
       // them. `error` is the exception — something is there but cannot be
       // read, and fetching the current build is the usual way out of that.
       const before = await probe();
-      if (before !== 'not_installed' && before !== 'error') return { status: 'done' };
-      const started = { running: true, failed: false };
-      job = started;
+      if (before !== 'not_installed' && before !== 'error') {
+        if (job === started) job = undefined;
+        return { status: 'done' };
+      }
       void runInstall(['install', '--global', EVERME_PACKAGE])
         .then((result) => {
           started.failed = result.code !== undefined;
