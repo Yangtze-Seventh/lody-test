@@ -19,16 +19,34 @@ import { createEverMeMemoryProvider } from './everme-provider';
 
 type CommandResult = { stdout: string; code?: string | number };
 export type MemoryCommandRunner = (args: string[]) => Promise<CommandResult>;
+/**
+ * A package manager running a package's script exports its own settings as
+ * `npm_config_*`, and `npm_config_prefix` among them names that package's own
+ * directory. A nested `npm install --global` reads it as its own prefix, so
+ * the install lands inside the checkout instead of on the machine and nothing
+ * can find it afterwards. Observed with `pnpm run` driving Lody from source.
+ * The child gets the machine's npm configuration, never the parent's.
+ */
+export const withoutInheritedPackageManagerConfig = (
+  env: Record<string, string | undefined>
+): Record<string, string | undefined> =>
+  Object.fromEntries(Object.entries(env).filter(([key]) => !/^npm_config_/i.test(key)));
+
 const createCommandRunner =
-  (command: string, timeout: number): MemoryCommandRunner =>
+  (
+    command: string,
+    timeout: number,
+    prepareEnv?: (env: Record<string, string | undefined>) => Record<string, string | undefined>
+  ): MemoryCommandRunner =>
   async (args) => {
     try {
+      const inherited = { ...process.env, ...(await getLoginShellEnvLegacy()) };
       const result = await runCommandTextLegacy(
         {
           command,
           args,
           check: 'none',
-          env: { ...process.env, ...(await getLoginShellEnvLegacy()) },
+          env: prepareEnv ? prepareEnv(inherited) : inherited,
           timeout,
           maxOutputBytes: 1024 * 1024,
         },
@@ -59,7 +77,7 @@ export const runEvercli = createCommandRunner('evercli', 20_000);
  * has, so it gets a wall-clock budget rather than a request-sized one; the
  * job outlives the reply that started it either way.
  */
-export const runNpm = createCommandRunner('npm', 10 * 60_000);
+export const runNpm = createCommandRunner('npm', 10 * 60_000, withoutInheritedPackageManagerConfig);
 
 export interface MemoryProvider {
   id: string;

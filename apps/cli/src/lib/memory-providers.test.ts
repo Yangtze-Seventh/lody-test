@@ -4,6 +4,7 @@ import {
   createNowledgeMemoryProvider,
   handleMemoryProviderRequest,
   memoryEnvironment,
+  withoutInheritedPackageManagerConfig,
 } from './memory-providers';
 
 describe('Nowledge memory provider', () => {
@@ -159,5 +160,21 @@ describe('Nowledge memory provider', () => {
     expect(
       await handleMemoryProviderRequest({ action: 'signIn', providerId: provider.id }, [provider])
     ).toMatchObject({ status: 'error' });
+  });
+});
+
+describe('global install environment', () => {
+  it('drops the package manager settings a parent script exported', () => {
+    // `npm_config_prefix` names the directory of the package whose script is
+    // running. Left in place, `npm install --global` put EverCLI inside the
+    // checkout, where the machine could never find it.
+    const cleaned = withoutInheritedPackageManagerConfig({
+      PATH: '/usr/bin',
+      HOME: '/home/someone',
+      npm_config_prefix: '/repo/apps/electron',
+      npm_config_registry: 'https://example.invalid/',
+      NPM_CONFIG_PREFIX: '/repo/apps/electron',
+    });
+    expect(cleaned).toEqual({ PATH: '/usr/bin', HOME: '/home/someone' });
   });
 });
