@@ -10,18 +10,10 @@ import type { useMemoryProvider } from '@/hooks/use-memory-provider';
 import { settingsCatalog as catalog, settingsSurface as surface } from './surface';
 import { settingsType as type } from './type.stylex';
 import { SettingsEmptyList, settingsRecordsCard } from './compact-layout';
+import { MemoryProviderHeading } from './memory-provider-heading';
 
 const styles = stylex.create({
   stack: { display: 'flex', flexDirection: 'column', gap: space[3], minWidth: 0 },
-  lead: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space[3],
-    flexWrap: 'wrap',
-  },
-  leadText: { display: 'flex', flexDirection: 'column', gap: space[1.5], minWidth: 0 },
-  titleRow: { display: 'flex', alignItems: 'center', gap: space[2], minWidth: 0 },
   // `catalog.rowMain` is the body *as a button* — it carries a pointer cursor
   // and a focus ring. These rows act through their trailing button, so the
   // body uses the plain padding instead of inviting a click that does nothing.
@@ -92,38 +84,31 @@ export function MemoryAgentConnectList({
   };
   return (
     <div {...stylex.props(styles.stack)}>
-      <div {...stylex.props(styles.lead)}>
-        <span {...stylex.props(styles.leadText)}>
-          <span {...stylex.props(styles.titleRow)}>
-            {logo}
-            <span {...stylex.props(surface.sectionTitle)}>{name}</span>
-          </span>
-          {/* Every provider on this page describes itself in one line and no
-              more, and it is the same line in every state it can be in — the
-              symmetry is what lets the two be compared. */}
-          <span {...stylex.props(surface.sectionDescription)}>
-            {t(`settings.memory.about.${providerKey}`)}
-          </span>
-        </span>
-        {/* Gone rather than disabled once everything is connected: a button
-            with nothing left to do is furniture, and the dots already say so. */}
-        {missing.length ? (
-          <Button
-            type="button"
-            size="small"
-            variant="secondary"
-            disabled={disabled || busy}
-            onClick={() =>
-              void run(
-                'connect',
-                missing.map((row) => row.agentType)
-              )
-            }
-          >
-            {t('settings.memory.everme.connectAll', { count: missing.length })}
-          </Button>
-        ) : null}
-      </div>
+      <MemoryProviderHeading
+        logo={logo}
+        name={name}
+        providerKey={providerKey}
+        action={
+          // Gone rather than disabled once everything is connected: a button
+          // with nothing left to do is furniture, and the dots already say so.
+          missing.length ? (
+            <Button
+              type="button"
+              size="small"
+              variant="secondary"
+              disabled={disabled || busy}
+              onClick={() =>
+                void run(
+                  'connect',
+                  missing.map((row) => row.agentType)
+                )
+              }
+            >
+              {t('settings.memory.everme.connectAll', { count: missing.length })}
+            </Button>
+          ) : null
+        }
+      />
       {rows.length === 0 ? (
         // Only an answered, readable inventory can claim the machine is empty.
         disabled ? null : (

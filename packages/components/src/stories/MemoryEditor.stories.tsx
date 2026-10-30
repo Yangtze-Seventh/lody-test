@@ -40,7 +40,6 @@ const meta = {
       install: async () => result,
       installPoll: async () => result,
     },
-    onProvider: () => {},
     onClose: () => {},
     save: async () => {},
   },

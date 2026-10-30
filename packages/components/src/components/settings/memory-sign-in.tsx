@@ -10,6 +10,7 @@ import type { useMemoryProvider } from '@/hooks/use-memory-provider';
 import { openExternalUrl } from '@/lib/native-browser';
 import { settingsCatalog as catalog, settingsSurface as surface } from './surface';
 import { FormMessage } from './form-primitives';
+import { MemoryProviderHeading } from './memory-provider-heading';
 
 /** Close enough to feel like the browser told us; far enough apart to stay quiet. */
 const POLL_INTERVAL_MS = 4_000;
@@ -42,15 +43,8 @@ type StartedFlow = {
 
 const styles = stylex.create({
   stack: { display: 'flex', flexDirection: 'column', gap: space[3], minWidth: 0 },
-  lead: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space[3],
-    flexWrap: 'wrap',
-  },
+  // Only the one-time-code block stacks text now; the heading is shared.
   leadText: { display: 'flex', flexDirection: 'column', gap: space[1.5], minWidth: 0 },
-  titleRow: { display: 'flex', alignItems: 'center', gap: space[2], minWidth: 0 },
   block: { display: 'flex', flexDirection: 'column', gap: space[3], minWidth: 0 },
   codeRow: {
     display: 'flex',
@@ -194,43 +188,36 @@ export function MemorySignInCard({
   const stranded = waiting && flow !== null && !flow.opened;
   return (
     <div {...stylex.props(styles.stack)}>
-      <div {...stylex.props(styles.lead)}>
-        <span {...stylex.props(styles.leadText)}>
-          <span {...stylex.props(styles.titleRow)}>
-            {logo}
-            <span {...stylex.props(surface.sectionTitle)}>{name}</span>
-          </span>
-          {/* The same sentence this provider carries on every other screen.
-              Without it the title sat a line higher here than on the screens
-              either side of it, and signing in is the step between them. */}
-          <span {...stylex.props(surface.sectionDescription)}>
-            {t(`settings.memory.about.${providerKey}`)}
-          </span>
-        </span>
-        <Button
-          type="button"
-          size="small"
-          variant="secondary"
-          disabled={phase === 'starting'}
-          onClick={() => void (waiting && flow ? openExternalUrl(flow.page) : start())}
-        >
-          {waiting
-            ? t('settings.memory.signIn.openPage')
-            : phase === 'expired' || phase === 'failed'
-              ? t('settings.memory.signIn.retry')
-              : t('settings.memory.signIn.start', { provider: name })}
-          {/* The mark follows the label here too. The install card is the
-              screen immediately before this one, and an icon that swaps sides
-              between them is a shift the eye has to re-find every time. */}
-          {phase === 'starting' ? (
-            <Spinner size="small" label={null} {...stylex.props(catalog.icon)} />
-          ) : waiting ? (
-            <ExternalLink {...stylex.props(catalog.icon)} />
-          ) : (
-            <LogIn {...stylex.props(catalog.icon)} />
-          )}
-        </Button>
-      </div>
+      <MemoryProviderHeading
+        logo={logo}
+        name={name}
+        providerKey={providerKey}
+        action={
+          <Button
+            type="button"
+            size="small"
+            variant="secondary"
+            disabled={phase === 'starting'}
+            onClick={() => void (waiting && flow ? openExternalUrl(flow.page) : start())}
+          >
+            {waiting
+              ? t('settings.memory.signIn.openPage')
+              : phase === 'expired' || phase === 'failed'
+                ? t('settings.memory.signIn.retry')
+                : t('settings.memory.signIn.start', { provider: name })}
+            {/* The mark follows the label here too. The install card is the
+                screen immediately before this one, and an icon that swaps sides
+                between them is a shift the eye has to re-find every time. */}
+            {phase === 'starting' ? (
+              <Spinner size="small" label={null} {...stylex.props(catalog.icon)} />
+            ) : waiting ? (
+              <ExternalLink {...stylex.props(catalog.icon)} />
+            ) : (
+              <LogIn {...stylex.props(catalog.icon)} />
+            )}
+          </Button>
+        }
+      />
       {/* A flow can go wrong in ways no poll sees — the tab closed, the wrong
           account approved. Without this the only way out is to outlast the
           code, which can be fifteen minutes. */}

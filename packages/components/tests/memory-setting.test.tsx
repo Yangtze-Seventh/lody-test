@@ -170,6 +170,28 @@ async function renderSetting() {
   );
 }
 
+it('does not reach an account provider on a machine this app is not running on', async () => {
+  // EverMe holds one person's memory. Without a confirmed local machine the
+  // page is pointed at a workspace machine that may be someone else's, and a
+  // sign-in there would bind their machine to whoever happened to click.
+  const store = createStore();
+  store.set(localProbeResultAtom, null);
+  await act(async () =>
+    root.render(
+      <Provider store={store}>
+        <MemorySetting />
+      </Provider>
+    )
+  );
+  expect(container.textContent).toContain('EverMe');
+  expect(container.textContent).toContain('holds one person');
+  const labels = [...container.querySelectorAll('button')].map((node) => node.textContent);
+  expect(labels).not.toContain('Get EverMe');
+  expect(labels.some((label) => label?.includes('Sign in'))).toBe(false);
+  // Nowledge Mem keeps its own behaviour: it is the machine's, not a person's.
+  expect(container.textContent).toContain('Memory per role');
+});
+
 it('keeps missing nmem on the page with an install link and does not open a dialog', async () => {
   await renderSetting();
   expect(container.textContent).toContain('Memory per role');
@@ -230,14 +252,14 @@ const saved = {
   description: 'Review lessons',
 };
 
-it('keeps Add available for provider selection but disables creation when nmem is missing', async () => {
+it('offers no way to add a memory to a provider this machine cannot reach', async () => {
+  // The step belongs to the provider's own block, so it only exists once that
+  // provider can answer. A page-level Add opened an editor with nothing in it.
   await renderSetting();
-  await click('Add memory');
-  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Memory providers');
-  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-    'Nowledge Mem is not installed on this machine.'
+  expect([...container.querySelectorAll('button')].map((node) => node.textContent)).not.toContain(
+    'Add memory'
   );
-  expect(button('Create and import').disabled).toBe(true);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(mocks.entries).toEqual([]);
 });
 
@@ -265,7 +287,9 @@ it('shows only saved associations and links exactly one external identity using 
     '[role="checkbox"][aria-label="Designer"]'
   )!;
   expect(linked.disabled).toBe(true);
-  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Designer · Imported');
+  // Already imported is a fact beside the name, not part of what it is called.
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Designer');
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Imported');
 });
 
 function checkbox(name: string) {
@@ -407,7 +431,10 @@ it('updates the provider profile and Lody metadata, then removes only the import
   expect(mocks.provider.result.memories[0]?.name).toBe('My reviewer');
   await click('Remove My reviewer from Lody');
   await renderSetting();
-  expect(container.textContent).toContain('No memories imported yet');
+  // Emptied, the block offers the step rather than describing the absence —
+  // the same full-width control the other provider offers in its own empty
+  // state, so the two read as one page.
+  expect(button('Add memory')).toBeTruthy();
   expect(mocks.provider.result.memories.map((value) => value.id)).toContain('reviewer');
 });
 

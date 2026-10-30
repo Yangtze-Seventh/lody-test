@@ -7,8 +7,9 @@ import { Spinner } from '@lody/ui/spinner';
 import { space } from '@lody/ui/tokens/scales.stylex';
 import type { useMemoryProvider } from '@/hooks/use-memory-provider';
 import { openExternalUrl } from '@/lib/native-browser';
-import { settingsCatalog as catalog, settingsSurface as surface } from './surface';
+import { settingsCatalog as catalog } from './surface';
 import { FormMessage } from './form-primitives';
+import { MemoryProviderHeading, memoryProviderActions } from './memory-provider-heading';
 
 /** A download, so slower than a sign-in poll and worth asking after less often. */
 const POLL_INTERVAL_MS = 5_000;
@@ -21,11 +22,6 @@ const RUN_BUDGET_MS = 10 * 60_000;
 
 const styles = stylex.create({
   stack: { display: 'flex', flexDirection: 'column', gap: space[3], minWidth: 0 },
-  leadText: { display: 'flex', flexDirection: 'column', gap: space[1.5], minWidth: 0 },
-  titleRow: { display: 'flex', alignItems: 'center', gap: space[2], minWidth: 0 },
-  // A column so each button fills the width, matching the other provider's
-  // not-installed state; the padding keeps it its own step on the page.
-  actions: { display: 'flex', flexDirection: 'column', gap: space[2], paddingBlock: space[1] },
   // Layout only; the text itself takes the shared meta level so it sits at
   // the same grey as every other secondary line on the page.
   waiting: { display: 'flex', alignItems: 'center', gap: space[2] },
@@ -121,20 +117,15 @@ export function MemoryInstallCard({
 
   return (
     <div {...stylex.props(styles.stack)}>
-      <span {...stylex.props(styles.leadText)}>
-        <span {...stylex.props(styles.titleRow)}>
-          {logo}
-          <span {...stylex.props(surface.sectionTitle)}>{name}</span>
-        </span>
-        <span {...stylex.props(surface.sectionDescription)}>
-          {t(
-            reason === 'unreadable'
-              ? `settings.memory.setUp.about.unreadable.${providerKey}`
-              : `settings.memory.about.${providerKey}`
-          )}
-        </span>
-      </span>
-      <span {...stylex.props(styles.actions)}>
+      <MemoryProviderHeading
+        logo={logo}
+        name={name}
+        providerKey={providerKey}
+        {...(reason === 'unreadable'
+          ? { description: t(`settings.memory.setUp.about.unreadable.${providerKey}`) }
+          : {})}
+      />
+      <span {...stylex.props(memoryProviderActions)}>
         {reason ? (
           <Button
             type="button"
