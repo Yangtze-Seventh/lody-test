@@ -172,6 +172,8 @@ export function createEverMeMemoryProvider(
    * rather than held open across a reply nobody is waiting on any more.
    */
   let job: { running: boolean; failed: boolean } | undefined;
+  /** A click that has decided to install but not yet started one. */
+  let claiming = false;
   /** Last account the probe saw, so reading it costs no extra EverCLI call. */
   let account: string | undefined;
 
@@ -311,7 +313,13 @@ export function createEverMeMemoryProvider(
       // A machine already signed in has nothing to approve, and a second flow
       // through it would mint a second key for an account that has one. Say
       // so rather than acting: the UI moves on either way.
-      if ((await probe()) === 'ready') return { status: 'approved' };
+      const before = await probe();
+      if (before === 'ready') return { status: 'approved' };
+      // A probe that could not be read is not permission to start a flow: the
+      // machine may well be signed in, and a second flow would mint a second
+      // key for an account that already has one.
+      if (before === 'error')
+        throw new Error('EverMe could not be read on this machine. Refresh its status and retry.');
       const result = await run(['auth', 'login', '--no-wait', '--no-prompt', '--format', 'json']);
       if (result.code !== undefined)
         throw new Error('EverMe could not start a sign-in. Check EverCLI and try again.');
@@ -363,21 +371,26 @@ export function createEverMeMemoryProvider(
     async install() {
       // A second click while one is running rejoins it. Two global installs
       // of the same package at once would race over the same bin directory.
-      if (job?.running) return { status: 'running' };
-      // Claim the slot before awaiting anything. Two clicks that each read an
-      // empty slot before either filled it would both spawn a global install
-      // over the same bin directory — the thing this guard exists to prevent.
+      if (job?.running || claiming) return { status: 'running' };
+      // Claimed before anything is awaited, so two clicks cannot both find the
+      // slot empty and each spawn a global install over one bin directory. It
+      // is kept apart from `job` because an empty `job` means "this install
+      // failed", which a click that has not started one yet has not done.
+      claiming = true;
+      try {
+        // An EverCLI that answers is left alone: a machine that has one has
+        // connected agents behind it, and this click never asked to disturb
+        // them. `error` is the exception — something is there but cannot be
+        // read, and fetching the current build is the usual way out of that.
+        const before = await probe();
+        if (before !== 'not_installed' && before !== 'error') return { status: 'done' };
+      } finally {
+        claiming = false;
+      }
+      // No await between dropping the claim and taking the slot, so nothing
+      // can slip in and start a second install.
       const started = { running: true, failed: false };
       job = started;
-      // An EverCLI that answers is left alone: a machine that has one has
-      // connected agents behind it, and this click never asked to disturb
-      // them. `error` is the exception — something is there but cannot be
-      // read, and fetching the current build is the usual way out of that.
-      const before = await probe();
-      if (before !== 'not_installed' && before !== 'error') {
-        if (job === started) job = undefined;
-        return { status: 'done' };
-      }
       void runInstall(['install', '--global', EVERME_PACKAGE])
         .then((result) => {
           started.failed = result.code !== undefined;
@@ -394,6 +407,9 @@ export function createEverMeMemoryProvider(
     // name; asking after a job is reading a flag, not work.
     async installPoll() {
       // Nothing started here, so there is nothing to report as still going.
+      // Claimed but not started yet: the click that claimed it is still
+      // deciding, and calling that a failure would strand a second window.
+      if (claiming) return { status: 'running' };
       if (!job) return { status: 'failed' };
       if (job.running) return { status: 'running' };
       return { status: job.failed ? 'failed' : 'done' };

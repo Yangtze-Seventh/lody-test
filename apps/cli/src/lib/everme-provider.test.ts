@@ -549,6 +549,63 @@ describe('EverMe memory provider', () => {
     expect(response.agents?.find((agent) => agent.id === 'claude')?.connected).toBe(true);
   });
 
+  it('tells a second click an install is running, and never calls it failed', async () => {
+    // The claim and the job are separate slots on purpose: an empty job means
+    // "this install failed", which a click still deciding has not done.
+    const npm: string[][] = [];
+    const state: EverMeState = { platforms: {}, calls: [] };
+    const absent = createEverMeMemoryProvider(
+      async () => ({ stdout: '', code: 'ENOENT' }),
+      async (args) => {
+        npm.push(args);
+        return { stdout: '' };
+      }
+    );
+    const ask = (action: 'install' | 'installPoll') =>
+      handleMemoryProviderRequest({ action, providerId: absent.id }, [absent]);
+    const [first, second] = await Promise.all([ask('install'), ask('install')]);
+    expect(first.install).toEqual({ status: 'running' });
+    expect(second.install).toEqual({ status: 'running' });
+    // One click, one global install, however many hands reached for it.
+    expect(npm).toHaveLength(1);
+    expect((await ask('installPoll')).install?.status).not.toBe('failed');
+    expect(state.calls).toHaveLength(0);
+  });
+
+  it('refuses to start a flow on a machine it cannot read', async () => {
+    // `ready` is the only answer that means "already signed in", but an
+    // unreadable one is not permission either: the machine may well have an
+    // account, and a second flow would mint a second key for it.
+    const state: EverMeState = {
+      platforms: {},
+      calls: [],
+      account: null,
+      // A flow would succeed if one were started, so only the guard can stop it.
+      login: [pendingLogin()],
+    };
+    const inner = everMeRunner(state);
+    const provider = createEverMeMemoryProvider(async (args) =>
+      args[0] === 'auth' && args[1] === 'status'
+        ? (state.calls.push(args), { stdout: 'not json', code: 1 })
+        : inner(args)
+    );
+    expect(
+      await handleMemoryProviderRequest({ action: 'signIn', providerId: provider.id }, [provider])
+    ).toMatchObject({ status: 'error' });
+    expect(state.calls.some((call) => call[1] === 'login')).toBe(false);
+  });
+
+  it('does not re-probe while the browser still has the flow open', async () => {
+    // A probe that failed mid-flow would answer `error`, which tears the
+    // sign-in card down and abandons the code the daemon is holding.
+    const state: EverMeState = { platforms: {}, calls: [], account: null, login: [pendingLogin()] };
+    const signIn = signInOf(state);
+    await signIn('signIn');
+    const before = state.calls.filter((call) => call[1] === 'status').length;
+    expect((await signIn('signInPoll')).status).toBe('not_running');
+    expect(state.calls.filter((call) => call[1] === 'status')).toHaveLength(before);
+  });
+
   it('reports an install that could not be made, rather than retrying forever', async () => {
     const npm: string[][] = [];
     const absent = createEverMeMemoryProvider(

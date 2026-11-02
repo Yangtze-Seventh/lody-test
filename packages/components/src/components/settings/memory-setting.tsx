@@ -225,6 +225,13 @@ function MemoryRoleAvatar({ role }: { role: AgentRole }) {
   );
 }
 
+/**
+ * Failed replies in a row before a provider is called broken. Two, because one
+ * is routine — a timed-out runner, a machine mid-reconnect — and the cost of
+ * believing it is a working panel replaced by an offer to reinstall.
+ */
+const UNREADABLE_AFTER = 2;
+
 /** Faces a record shows before it stops counting them one by one. */
 const SHOWN_ROLES = 2;
 
@@ -639,14 +646,14 @@ function ProviderRecords({
   const [justInstalled, setJustInstalled] = useState(false);
   const ready = online && supported && state.result?.status === 'ready';
   const missing = state.result?.status === 'not_installed';
-  // One failed reply is not evidence the provider broke: the runner times out,
-  // a machine drops mid-refresh. Once it has answered at all — ready, or
-  // installed with nobody signed in — keep showing what it said rather than
-  // tearing the card down and offering a reinstall. Doing that mid sign-in
-  // also abandons a device flow the daemon still holds, wasting an approval
-  // the user may be making in their browser right then.
-  const everAnswered = useRef(false);
-  if (ready || state.result?.status === 'not_running') everAnswered.current = true;
+  // One failed reply is not evidence the provider broke: the runner times
+  // out, a machine drops mid-refresh, and tearing the card down mid sign-in
+  // abandons a device flow the daemon still holds. But a provider that really
+  // did break has to reach the repair card, so this counts rather than
+  // latches: a reply that worked resets it, and only failures that keep
+  // coming are taken at their word.
+  const failures = useRef(0);
+  if (state.result) failures.current = state.result.status === 'error' ? failures.current + 1 : 0;
 
   // Installed and reachable, with nobody signed in — the one unready state a
   // provider can settle itself, so it offers a sign-in, not a line of advice.
@@ -660,7 +667,7 @@ function ProviderRecords({
     supported &&
     state.result?.status === 'error' &&
     providerInstalls(provider.id) &&
-    !everAnswered.current;
+    failures.current >= UNREADABLE_AFTER;
   if (personal)
     return (
       <div {...stylex.props(styles.stack)}>

@@ -195,12 +195,13 @@ export async function handleMemoryProviderRequest(
       const begin = request.action === 'signIn' ? provider.signIn : provider.signInPoll;
       if (!begin) throw new Error('This memory provider does not sign in from Lody');
       const signIn = await begin.call(provider);
-      // Approval is the moment the account exists, so answer with the
-      // inventory it unlocked rather than making the UI ask a second time.
-      // Every reply probes: claiming `not_running` without looking would
-      // overwrite a machine that just became ready through another window,
-      // and would still say "installed, signed out" after an uninstall.
-      const settled = await provider.probe();
+      // A flow that ended — approved, or spent — is worth a real look: the
+      // account may now exist, or may have been made elsewhere. A flow still
+      // pending is not. Probing on every tick let one failed probe answer
+      // `error` while the browser was still open, which tore the sign-in card
+      // down and abandoned the device code the daemon was holding — the exact
+      // failure this flow is built to survive.
+      const settled = signIn.status === 'pending' ? 'not_running' : await provider.probe();
       const agents = settled === 'ready' && provider.agents ? await provider.agents() : undefined;
       return {
         type: 'machine/memory',
